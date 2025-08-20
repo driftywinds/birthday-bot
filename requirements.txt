@@ -1,0 +1,4 @@
+python-telegram-bot
+apprise
+pytz
+python-dotenv

@@ -1,0 +1,11 @@
+version: "3.8"
+
+services:
+  twitchrise-bot:
+    image: ghcr.io/driftywinds/birthday-bot:latest
+    container_name: birthday-bot
+    volumes:
+      - ./birthdays.json:/app/birthdays.json
+      - ./.env:/app/.env:ro
+    restart: unless-stopped
+    tty: true

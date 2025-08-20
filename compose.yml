@@ -1,7 +1,7 @@
 version: "3.8"
 
 services:
-  twitchrise-bot:
+  birthday-bot:
     image: ghcr.io/driftywinds/birthday-bot:latest
     container_name: birthday-bot
     volumes:

@@ -26,6 +26,7 @@ class BirthdayBot:
         self.data_file = 'birthdays.json'
         self.users_data = self.load_data()
         self.pending_endpoints = {}  # Store pending endpoints for confirmation
+        self.sent_reminders = set()  # Track sent reminders to prevent duplicates
         self.application = Application.builder().token(token).build()
         self.setup_handlers()
         
@@ -55,6 +56,33 @@ class BirthdayBot:
                 'timezone': 'UTC'
             }
         return self.users_data[user_id]
+    
+    def create_reminder_key(self, user_id: str, name: str, birthday_str: str, reminder: Dict, reminder_time: datetime) -> str:
+        """Create a unique key for tracking sent reminders"""
+        # Round reminder time to the minute to avoid sub-minute duplicates
+        rounded_time = reminder_time.replace(second=0, microsecond=0)
+        return f"{user_id}_{name}_{birthday_str}_{reminder['type']}_{reminder['value']}_{rounded_time.isoformat()}"
+    
+    def cleanup_old_reminder_keys(self):
+        """Clean up reminder keys older than 24 hours to prevent memory buildup"""
+        current_time = datetime.now(pytz.UTC)
+        keys_to_remove = []
+        
+        for key in self.sent_reminders:
+            try:
+                # Extract timestamp from the key (last part after splitting by '_')
+                timestamp_str = key.split('_')[-1]
+                key_time = datetime.fromisoformat(timestamp_str)
+                
+                # Remove keys older than 24 hours
+                if (current_time - key_time).total_seconds() > 86400:  # 24 hours
+                    keys_to_remove.append(key)
+            except (ValueError, IndexError):
+                # If we can't parse the timestamp, remove the key to be safe
+                keys_to_remove.append(key)
+        
+        for key in keys_to_remove:
+            self.sent_reminders.discard(key)
     
     def setup_handlers(self):
         """Setup command and message handlers"""
@@ -543,6 +571,11 @@ Examples:
         logger.info("Checking birthdays...")
         current_time = datetime.now(pytz.UTC)
         
+        # Clean up old reminder keys periodically (every hour)
+        if not hasattr(self, '_last_cleanup') or (current_time - self._last_cleanup).total_seconds() > 3600:
+            self.cleanup_old_reminder_keys()
+            self._last_cleanup = current_time
+        
         for user_id, user_data in self.users_data.items():
             if not user_data['birthdays'] or not user_data['reminders']:
                 continue
@@ -558,10 +591,18 @@ Examples:
                             next_birthday, reminder, timezone_str
                         )
                         
+                        # Create unique key for this reminder
+                        reminder_key = self.create_reminder_key(
+                            user_id, name, birthday_str, reminder, reminder_time
+                        )
+                        
                         # Check if it's time to send reminder (within 1 minute window)
                         time_diff = abs((current_time - reminder_time).total_seconds())
                         
-                        if time_diff <= 60:  # Within 1 minute
+                        if time_diff <= 60 and reminder_key not in self.sent_reminders:
+                            # Mark as sent before sending to prevent race conditions
+                            self.sent_reminders.add(reminder_key)
+                            
                             age = datetime.now().year - 2000  # Approximate age calculation
                             title = f"🎂 Birthday Reminder: {name}"
                             message = f"Don't forget! {name}'s birthday is coming up on {birthday_str}!"
